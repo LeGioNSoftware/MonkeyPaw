@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Multiplayer Lobby</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Multiplayer Lobby</h1>
+  <div>
+    <input placeholder="Lobby Name" id="lobbyName">
+    <input placeholder="Password" id="password">
+    <input placeholder="Your Name" id="playerName">
+    <button id="createBtn">Create Lobby</button>
+    <button id="joinBtn">Join Lobby</button>
+  </div>
+  <div id="chat" style="margin-top:20px;"></div>
+  <input id="message" placeholder="Type a message">
+  <button id="sendBtn">Send</button>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
