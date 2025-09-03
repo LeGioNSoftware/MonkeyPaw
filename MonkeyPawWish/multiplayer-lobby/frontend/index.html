@@ -1,24 +1,299 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Multiplayer Lobby</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monkey's Paw – Cursed Wish Party Game (Online)</title>
+  <style>
+    :root{ --bg:#0b0f14; --panel:#121821; --muted:#9aa7b2; --text:#e6edf3; --accent:#7c3aed; --accent-2:#22d3ee; --danger:#ef4444; --ok:#10b981; }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; background: radial-gradient(1200px 600px at 20% -10%, #1a2431 0%, var(--bg) 60%), radial-gradient(1200px 600px at 120% 120%, #1c0f2f 0%, var(--bg) 40%); color:var(--text); line-height:1.4}
+    .container{max-width:1100px; margin:0 auto; padding:24px}
+    .title{font-size:clamp(22px,4vw,36px); font-weight:800; display:flex; gap:12px; align-items:center}
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px}
+    input,select,textarea,button{font:inherit}
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .col{flex:1 1 320px}
+    .muted{color:var(--muted)}
+    .hidden{display:none}
+    .pill{padding:6px 10px; border-radius:999px; background:#0f1420}
+    .btn{border:none; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:700}
+    .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#081218}
+    .btn.ghost{background:transparent; border:1px dashed rgba(255,255,255,0.08); color:var(--text)}
+    .list{list-style:none; padding:0; margin:0}
+    .list li{display:flex; justify-content:space-between; padding:6px 0}
+    .footer{opacity:.7; font-size:12px; margin-top:12px}
+    .notice{background:#08121a; padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.03)}
+    textarea{min-height:72px}
+    pre{background:#071017;color:#9fd6ff;padding:12px; border-radius:8px; overflow:auto}
+  </style>
 </head>
 <body>
-  <h1>Multiplayer Lobby</h1>
-  <div>
-    <input placeholder="Lobby Name" id="lobbyName">
-    <input placeholder="Password" id="password">
-    <input placeholder="Your Name" id="playerName">
-    <button id="createBtn">Create Lobby</button>
-    <button id="joinBtn">Join Lobby</button>
-  </div>
-  <div id="chat" style="margin-top:20px;"></div>
-  <input id="message" placeholder="Type a message">
-  <button id="sendBtn">Send</button>
+  <div class="container">
+    <div class="title">🐒🪢 Monkey's Paw — Online Lobby</div>
+    <p class="muted">Create a lobby (host) and share the Lobby Name + Password with friends. Friends join from their devices. This page is the client; a small Node.js WebSocket server is required (see server code at the bottom).</p>
 
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="main.js"></script>
+    <!-- Lobby screens -->
+    <section id="lobbySetup" class="panel">
+      <div class="row">
+        <div class="col">
+          <h3>Create a lobby (host)</h3>
+          <label>Lobby name<input id="hostLobbyName" placeholder="e.g. CursedPawRoom" /></label>
+          <label>Lobby password<input id="hostPassword" placeholder="secret" /></label>
+          <label>Your display name<input id="hostDisplay" placeholder="Host name" /></label>
+          <div style="margin-top:8px" class="row">
+            <button class="btn primary" id="createLobbyBtn">Create Lobby</button>
+            <button class="btn ghost" id="showJoin">I want to join instead</button>
+          </div>
+          <div style="margin-top:12px" class="muted">Server status: <span id="serverStatus">disconnected</span></div>
+        </div>
+        <div class="col">
+          <h3>Join a lobby (friend)</h3>
+          <label>Lobby name<input id="joinLobbyName" placeholder="Lobby name" /></label>
+          <label>Lobby password<input id="joinPassword" placeholder="Lobby password" /></label>
+          <label>Your display name<input id="joinDisplay" placeholder="Your name" /></label>
+          <div style="margin-top:8px" class="row">
+            <button class="btn primary" id="joinLobbyBtn">Join Lobby</button>
+            <button class="btn ghost" id="showCreate">I want to host instead</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main game area (hidden until connected to a lobby) -->
+    <section id="mainGame" class="panel hidden">
+      <div class="row">
+        <div class="col">
+          <h3>Lobby: <span id="lobbyNameDisp"></span></h3>
+          <div class="notice">Role: <strong id="roleDisp"></strong> — <span id="hostHint"></span></div>
+          <div style="margin-top:8px">
+            <h4>Players</h4>
+            <ul id="remotePlayers" class="list"></ul>
+          </div>
+          <div style="margin-top:10px">
+            <button class="btn primary" id="startAsHost" disabled>Start Game (host only)</button>
+            <button class="btn ghost" id="leaveLobby">Leave Lobby</button>
+          </div>
+        </div>
+        <div class="col">
+          <h3>Settings</h3>
+          <label>Points to win<input id="r_pointsToWin" type="number" min="1" value="5" /></label>
+          <label>Speed round (seconds)<input id="r_speedSeconds" type="number" min="0" value="0" /></label>
+          <div style="margin-top:8px" class="muted">Only host changes are applied to the lobby. Other players see updates in real-time.</div>
+        </div>
+      </div>
+
+      <!-- Embedded game UI: for brevity we reuse earlier UI but driven by server events -->
+      <div id="gamePanel" style="margin-top:12px" class="hidden">
+        <!-- re-use game UI area simplified -->
+        <div class="row">
+          <div class="col">
+            <h3>Round <span id="roundNum">1</span> <span class="pill" id="turnBadge"></span></h3>
+            <div class="muted">Wisher: <strong id="wisherName"></strong></div>
+            <div class="notice" id="wishText">(waiting for wish)</div>
+            <div style="margin-top:8px" id="actionArea"></div>
+          </div>
+          <div class="col">
+            <h3>Scoreboard</h3>
+            <ul id="scoreboardRemote" class="list"></ul>
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <div id="phaseRemote" class="muted">Phase: <strong id="phaseLabelRemote">—</strong></div>
+          <div id="logRemote" style="margin-top:8px; max-height:220px; overflow:auto; font-size:13px"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <div class="footer">Server note: the client connects to a WebSocket server (default ws://localhost:8080). See server code below and run it on a machine reachable by players (or deploy to a small VPS). The server does not persist data beyond memory.</div>
+
+    <hr style="margin-top:18px" />
+
+    <h4>Node.js WebSocket server (paste to server.js)</h4>
+    <pre>// Requires: npm i ws
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
+
+// In-memory lobbies: { lobbyName: { password, hostId, players: Map(clientId -> {name,score,role}), state } }
+const lobbies = new Map();
+
+function send(ws, type, data){ ws.send(JSON.stringify({type,data})); }
+function broadcastLobby(lobby, type, data){ lobby.players.forEach(p=>{ try{ p.ws.send(JSON.stringify({type,data})); }catch(e){} }); }
+
+wss.on('connection', (ws) => {
+  ws.id = Math.random().toString(36).slice(2,9);
+  ws.on('message', (msg) => {
+    try{ const m = JSON.parse(msg); handleMsg(ws, m); }catch(e){ send(ws,'error','invalid json'); }
+  });
+});
+
+function handleMsg(ws, m){
+  const {type,data} = m;
+  if(type === 'create_lobby'){
+    const {lobby, password, displayName, options} = data;
+    if(lobbies.has(lobby)) return send(ws,'create_failed','lobby exists');
+    const lobbyObj = { password, hostId: ws.id, players: new Map(), options: options||{}, round:1 };
+    lobbyObj.players.set(ws.id, { id: ws.id, name: displayName || 'Host', score:0, role:'host', ws });
+    lobbies.set(lobby, lobbyObj);
+    send(ws,'created',{ lobby });
+    broadcastLobby(lobbyObj,'lobby_update',{ players: Array.from(lobbyObj.players.values()).map(p=>({id:p.id,name:p.name,score:p.score,role:p.role})), options: lobbyObj.options });
+  }
+  else if(type === 'join_lobby'){
+    const {lobby, password, displayName} = data;
+    const L = lobbies.get(lobby);
+    if(!L) return send(ws,'join_failed','no such lobby');
+    if(L.password !== password) return send(ws,'join_failed','bad password');
+    L.players.set(ws.id, { id: ws.id, name: displayName || 'Player', score:0, role:'player', ws });
+    send(ws,'joined',{ lobby });
+    broadcastLobby(L,'lobby_update',{ players: Array.from(L.players.values()).map(p=>({id:p.id,name:p.name,score:p.score,role:p.role})), options: L.options });
+  }
+  else if(type === 'leave_lobby'){
+    const {lobby} = data; const L = lobbies.get(lobby); if(!L) return;
+    L.players.delete(ws.id);
+    if(L.hostId === ws.id){ // host left -> dissolve
+      broadcastLobby(L,'lobby_closed','host left');
+      lobbies.delete(lobby);
+    } else {
+      broadcastLobby(L,'lobby_update',{ players: Array.from(L.players.values()).map(p=>({id:p.id,name:p.name,score:p.score,role:p.role})), options: L.options });
+    }
+  }
+  else if(type === 'lobby_action'){
+    const {lobby, action, payload} = data; const L = lobbies.get(lobby); if(!L) return send(ws,'error','no lobby');
+    // simple actions: start_game, update_options, draw_wish, submit_curse, vote, end_round
+    if(action === 'start_game'){
+      // set initial state and broadcast
+      L.state = { round:1, phase:'submit', submissions:[], votes:{}, currentWish:null };
+      broadcastLobby(L,'game_started', L.state );
+    }
+    else if(action === 'submit_curse'){
+      if(!L.state) return; L.state.submissions.push({ playerId: ws.id, text: payload.text });
+      broadcastLobby(L,'submission_update',{ count: L.state.submissions.length });
+    }
+    else if(action === 'draw_wish'){
+      // naive wish draw
+      const wishes = payload.deck || ["I wish for endless youth.","I wish for infinite money.","I wish for endless pizza."];
+      const w = wishes[Math.floor(Math.random()*wishes.length)]; L.state.currentWish = w; L.state.phase='submit'; broadcastLobby(L,'wish_drawn',{ wish: w });
+    }
+    else if(action === 'reveal_submissions'){
+      const list = L.state.submissions.map(s=>s.text);
+      L.state.phase='vote'; broadcastLobby(L,'reveal',{ submissions: list });
+    }
+    else if(action === 'finish_vote'){
+      // naive tally: payload.votes is map index->count
+      const winnerIndex = payload.winnerIndex; const winnerText = L.state.submissions[winnerIndex] && L.state.submissions[winnerIndex].text;
+      // award point to whoever wrote that text
+      const authors = L.state.submissions.filter(s=>s.text===winnerText).map(s=>s.playerId);
+      authors.forEach(aid=>{ const p=L.players.get(aid); if(p) p.score=(p.score||0)+1; });
+      L.state.phase='submit'; L.state.submissions=[]; L.state.currentWish=null; L.state.round++;
+      broadcastLobby(L,'round_finished',{ winnerText, players: Array.from(L.players.values()).map(p=>({id:p.id,name:p.name,score:p.score})) });
+    }
+  }
+}
+
+console.log('MonkeyPaw WS server running on ws://0.0.0.0:8080');
+</pre>
+
+    <h4 style="margin-top:12px">Client notes</h4>
+    <p class="muted">The client below connects to the WebSocket server and implements lobby creation/joining. It provides the minimal messages required — feel free to extend or ask me to integrate specific features (e.g., persistent decks, authentication, HTTPS/WSS, deployment instructions).</p>
+  </div>
+
+  <script>
+    // --- Client: WebSocket-based lobby + minimal game sync ---
+    // Edit this to point to your running server
+    const WS_URL = (location.hostname === 'localhost' ? 'ws://localhost:8080' : 'ws://' + location.hostname + ':8080');
+
+    let ws;
+    let client = { role:null, lobby:null, id:null, name:null };
+
+    const el = id => document.getElementById(id);
+
+    function connect(){
+      ws = new WebSocket(WS_URL);
+      el('serverStatus').textContent = 'connecting...';
+      ws.addEventListener('open', ()=>{ el('serverStatus').textContent = 'connected'; });
+      ws.addEventListener('message', e=>{ const m = JSON.parse(e.data); handleServer(m); });
+      ws.addEventListener('close', ()=>{ el('serverStatus').textContent = 'disconnected'; setTimeout(connect,2000); });
+      ws.addEventListener('error', ()=>{ el('serverStatus').textContent = 'error'; });
+    }
+    connect();
+
+    function send(type,data){ if(ws && ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type,data})); else alert('Not connected to server'); }
+
+    // UI wiring: create/join
+    el('showJoin').onclick = ()=>{ document.getElementById('lobbySetup').scrollIntoView(); };
+    el('showCreate').onclick = ()=>{ document.getElementById('lobbySetup').scrollIntoView(); };
+
+    el('createLobbyBtn').onclick = ()=>{
+      const lobby = el('hostLobbyName').value.trim(); const pass = el('hostPassword').value; const name = el('hostDisplay').value.trim()||'Host';
+      if(!lobby || !pass) return alert('Enter lobby name and password');
+      client.name = name; client.role='host'; client.lobby = lobby;
+      send('create_lobby',{ lobby, password: pass, displayName: name, options: { pointsToWin: parseInt(el('r_pointsToWin').value||5,10) } });
+    };
+
+    el('joinLobbyBtn').onclick = ()=>{
+      const lobby = el('joinLobbyName').value.trim(); const pass = el('joinPassword').value; const name = el('joinDisplay').value.trim()||'Player';
+      if(!lobby || !pass) return alert('Enter lobby name and password');
+      client.name = name; client.role='player'; client.lobby = lobby;
+      send('join_lobby',{ lobby, password: pass, displayName: name });
+    };
+
+    el('leaveLobby').onclick = ()=>{
+      if(!client.lobby) return; send('leave_lobby',{ lobby: client.lobby }); location.reload();
+    };
+
+    el('startAsHost').onclick = ()=>{ send('lobby_action',{ lobby: client.lobby, action:'start_game' }); };
+
+    // handle incoming server messages
+    function handleServer(msg){
+      const {type,data} = msg;
+      if(type === 'created'){ // host created
+        el('lobbyNameDisp').textContent = data.lobby; el('roleDisp').textContent = 'Host'; el('hostHint').textContent = 'Share this lobby name + password with friends';
+        showMainUI();
+      }
+      else if(type === 'create_failed'){ alert('Create failed: '+data); }
+      else if(type === 'joined'){ el('lobbyNameDisp').textContent = data.lobby; el('roleDisp').textContent = 'Player'; el('hostHint').textContent = 'Waiting for host to start the game'; showMainUI(); }
+      else if(type === 'join_failed'){ alert('Join failed: '+data); }
+      else if(type === 'lobby_update'){ renderPlayersRemote(data.players); el('startAsHost').disabled = !(client.role==='host'); }
+      else if(type === 'lobby_closed'){ alert('Lobby closed: '+data); location.reload(); }
+      else if(type === 'game_started'){ document.getElementById('gamePanel').classList.remove('hidden'); appendLog('Game started'); }
+      else if(type === 'wish_drawn'){ document.getElementById('wishText').textContent = data.wish; appendLog('Wish: '+data.wish); }
+      else if(type === 'submission_update'){ appendLog('Submissions: '+data.count); }
+      else if(type === 'reveal'){ // show submissions and allow voting
+        showRevealVote(data.submissions);
+      }
+      else if(type === 'round_finished'){ renderPlayersRemote(data.players); appendLog('Round finished. Winner: '+(data.winnerText||'nobody')); }
+      else if(type === 'error'){ console.warn('server error', data); }
+    }
+
+    function showMainUI(){ document.getElementById('mainGame').classList.remove('hidden'); document.getElementById('lobbySetup').classList.add('hidden'); }
+
+    function renderPlayersRemote(list){ const ul = el('remotePlayers'); ul.innerHTML = list.map(p=>`<li>${escapeHtml(p.name)} <strong>${p.score||0}</strong></li>`).join(''); // update scoreboard
+      el('scoreboardRemote').innerHTML = list.map(p=>`<li>${escapeHtml(p.name)} <strong>${p.score||0}</strong></li>`).join(''); }
+
+    function appendLog(t){ const L = el('logRemote'); const time = new Date().toLocaleTimeString(); L.innerHTML = `<div class="muted">[${time}]</div><div>${escapeHtml(t)}</div>` + L.innerHTML; }
+
+    function showRevealVote(subs){ // render submissions and voting UI
+      document.getElementById('phaseLabelRemote').textContent = 'Vote';
+      const area = el('actionArea'); area.innerHTML = '<div><strong>Vote for the worst twist:</strong></div><div style="margin-top:8px"></div>';
+      const container = area.querySelector('div:nth-child(2)');
+      subs.forEach((s,i)=>{
+        const btn = document.createElement('button'); btn.className='btn ghost'; btn.textContent = `Vote #${i+1}`; btn.onclick = ()=>{ send('lobby_action',{ lobby: client.lobby, action:'finish_vote', payload:{ winnerIndex:i } }); };
+        const row = document.createElement('div'); row.style.marginTop='6px'; row.innerHTML = `<div style="display:flex;gap:8px;align-items:center"><div style="flex:1">${escapeHtml(s)}</div></div>`;
+        row.prepend(btn);
+        container.appendChild(row);
+      });
+    }
+
+    function escapeHtml(s){ return s.replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+    // Optional: host can draw a wish
+    // For simplicity, we send a lobby_action draw_wish that server will pick a random wish
+    function hostDrawWish(){ send('lobby_action',{ lobby: client.lobby, action:'draw_wish', payload:{ } }); }
+
+    // expose some debug helpers to window
+    window._hostDraw = hostDrawWish;
+  </script>
 </body>
 </html>
