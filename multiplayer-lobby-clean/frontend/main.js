@@ -3,7 +3,7 @@ const socket = io("https://monkeypaw.onrender.com"); // Replace with your Render
 document.getElementById('createBtn').onclick = async () => {
   const lobbyName = document.getElementById('lobbyName').value;
   const password = document.getElementById('password').value;
-  const res = await fetch(`https://YOUR_RENDER_URL/create-lobby`, {
+  const res = await fetch(`https://monkeypaw.onrender.com/create-lobby`, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ lobbyName, password })
@@ -38,5 +38,6 @@ socket.on('player-joined', name => {
   const div = document.getElementById('chat');
   div.innerHTML += `<p><i>${name} joined the lobby</i></p>`;
 });
+
 
 
