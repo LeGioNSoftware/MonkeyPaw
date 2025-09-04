@@ -114,7 +114,14 @@
     <h4>Node.js WebSocket server (paste to server.js)</h4>
     <pre>// Requires: npm i ws
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080 });
+
+// Render (or Heroku, etc.) provides a dynamic PORT
+const PORT = process.env.PORT || 8080;
+
+const wss = new WebSocket.Server({ port: PORT });
+
+console.log("WebSocket server running on port", PORT);
+
 
 // In-memory lobbies: { lobbyName: { password, hostId, players: Map(clientId -> {name,score,role}), state } }
 const lobbies = new Map();
@@ -300,5 +307,6 @@ console.log('MonkeyPaw WS server running on ws://0.0.0.0:8080');
   </script>
 </body>
 </html>
+
 
 
