@@ -203,7 +203,8 @@ console.log('MonkeyPaw WS server running on ws://0.0.0.0:8080');
     // --- Client: WebSocket-based lobby + minimal game sync ---
     // Edit this to point to your running server
     const WS_URL = "wss://monkeypaw.onrender.com";
-    const socket = io(WS_URL);
+    const ws = new WebSocket(WS_URL);
+
 
 
     let ws;
@@ -299,4 +300,5 @@ console.log('MonkeyPaw WS server running on ws://0.0.0.0:8080');
   </script>
 </body>
 </html>
+
 
