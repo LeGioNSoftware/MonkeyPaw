@@ -1,4 +1,4 @@
-const socket = io("https://YOUR_RENDER_URL"); // Replace with your Render backend URL
+const socket = io("https://monkeypaw.onrender.com"); // Replace with your Render backend URL
 
 document.getElementById('createBtn').onclick = async () => {
   const lobbyName = document.getElementById('lobbyName').value;
@@ -38,4 +38,5 @@ socket.on('player-joined', name => {
   const div = document.getElementById('chat');
   div.innerHTML += `<p><i>${name} joined the lobby</i></p>`;
 });
+
 
