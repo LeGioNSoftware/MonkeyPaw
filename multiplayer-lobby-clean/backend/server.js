@@ -1,55 +1,59 @@
-let socket;
+// server.js
+import { WebSocketServer } from 'ws';
 
-// Initialize WebSocket
-function initWebSocket() {
-    socket = new WebSocket('wss://monkeypaw.onrender.com');
+const PORT = process.env.PORT || 10000;
+const wss = new WebSocketServer({ port: PORT });
 
-    socket.onopen = () => console.log('Connected to server');
+console.log(`Server running on port ${PORT}`);
 
-    socket.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
+let lobbies = {}; // lobbyId -> { users: [], votes: {} }
+
+wss.on('connection', (ws) => {
+    ws.on('message', (message) => {
+        let data;
+        try { data = JSON.parse(message); } 
+        catch { return; }
+
         switch(data.type) {
-            case 'lobby_created':
-                alert('Lobby created: ' + data.payload.lobbyId);
+            case 'createLobby': {
+                const lobbyId = Math.random().toString(36).substring(2, 8);
+                lobbies[lobbyId] = { users: [data.username], votes: {} };
+                ws.send(JSON.stringify({ type: 'lobbyCreated', lobbyId }));
                 break;
-            case 'user_joined':
-                console.log(`${data.payload.username} joined the lobby`);
+            }
+
+            case 'joinLobby': {
+                const lobby = lobbies[data.lobbyId];
+                if (!lobby) return ws.send(JSON.stringify({ type: 'error', message: 'Lobby not found' }));
+                lobby.users.push(data.username);
+                ws.send(JSON.stringify({ type: 'lobbyJoined', lobbyId: data.lobbyId }));
                 break;
-            case 'vote_cast':
-                console.log(`Total votes so far: ${data.payload.voteCount}`);
+            }
+
+            case 'vote': {
+                const lobby = lobbies[data.lobbyId];
+                if (!lobby) return;
+                lobby.votes[data.username] = data.card;
+                
+                // Check if all users have voted
+                if (Object.keys(lobby.votes).length === lobby.users.length) {
+                    // Pick winning card randomly
+                    const cards = Object.values(lobby.votes);
+                    const winningCard = cards[Math.floor(Math.random() * cards.length)];
+                    // Send results including usernames now
+                    wss.clients.forEach(client => {
+                        client.send(JSON.stringify({
+                            type: 'votingResult',
+                            lobbyId: data.lobbyId,
+                            votes: lobby.votes,
+                            winningCard
+                        }));
+                    });
+                    // Reset votes for next round
+                    lobby.votes = {};
+                }
                 break;
-            case 'votes_revealed':
-                console.log('Votes revealed:', data.payload);
-                alert(JSON.stringify(data.payload, null, 2));
-                break;
-            case 'error':
-                alert('Error: ' + data.payload);
-                break;
+            }
         }
-    };
-
-    socket.onclose = () => console.log('Disconnected from server');
-}
-
-// Call on page load
-initWebSocket();
-
-// Button handlers
-document.getElementById('createLobbyBtn').onclick = () => {
-    socket.send(JSON.stringify({ type: 'create_lobby' }));
-};
-
-document.getElementById('joinLobbyBtn').onclick = () => {
-    const username = prompt('Enter your username:');
-    const lobbyId = prompt('Enter lobby ID:').toUpperCase();
-    socket.send(JSON.stringify({ type: 'join_lobby', payload: { username, lobbyId } }));
-};
-
-document.getElementById('voteBtn').onclick = () => {
-    const vote = prompt('Enter your vote:');
-    socket.send(JSON.stringify({ type: 'vote', payload: { vote } }));
-};
-
-document.getElementById('revealVotesBtn').onclick = () => {
-    socket.send(JSON.stringify({ type: 'reveal_votes' }));
-};
+    });
+});
