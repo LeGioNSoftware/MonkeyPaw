@@ -3,36 +3,65 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Monkey's Paw</title>
-<link rel="stylesheet" href="style.css">
+<title>Monkey Paw Game</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: auto; padding: 20px; }
+  #login, #lobby, #game { display: none; }
+  .player { margin-bottom: 5px; }
+  button { margin-top: 5px; }
+</style>
 </head>
 <body>
 
-<div id="loginScreen">
-  <h2>Monkey's Paw - Login</h2>
-  <input type="text" id="usernameInput" placeholder="Enter your username">
-  <button id="loginBtn">Continue</button>
+<div id="login">
+  <h2>Enter Username</h2>
+  <input type="text" id="username" placeholder="Your username">
+  <button id="loginBtn">Login</button>
 </div>
 
-<div id="lobbyScreen" style="display:none;">
+<div id="lobby">
   <h2>Lobby</h2>
-  <input type="text" id="lobbyNameInput" placeholder="Lobby Name">
-  <input type="password" id="lobbyPasswordInput" placeholder="Password">
+  <input type="text" id="lobbyName" placeholder="Lobby name">
+  <input type="text" id="lobbyPassword" placeholder="Password">
   <button id="createLobbyBtn">Create Lobby</button>
   <button id="joinLobbyBtn">Join Lobby</button>
+  <h3>Players in Lobby:</h3>
+  <div id="playersList"></div>
+  <button id="startRoundBtn">Start Round (Host Only)</button>
 </div>
 
-<div id="gameScreen" style="display:none;">
-  <h2 id="gameStatus">Waiting for host...</h2>
-  <div id="playersList"></div>
-  <div id="roundInfo"></div>
-  <div id="wishDisplay"></div>
-  <div id="curseSubmission" style="display:none;">
-    <textarea id="curseInput" placeholder="Write your curse here"></textarea>
-    <button id="submitCurseBtn">Submit Curse</button>
+<div id="game">
+  <h2>Round <span id="roundNum">0</span></h2>
+  <div id="wisherDiv">
+    <h3>Wisher: <span id="wisherName"></span></h3>
+    <div id="wishInputDiv">
+      <input type="text" id="wishText" placeholder="Enter your wish">
+      <button id="submitWishBtn">Submit Wish</button>
+    </div>
+    <div id="wishDisplayDiv" style="display:none;">
+      <strong>Wish:</strong> <span id="currentWish"></span>
+    </div>
   </div>
-  <div id="cursesReveal" style="display:none;"></div>
-  <div id="scores"></div>
+
+  <div id="cursesDiv" style="display:none;">
+    <h3>Submit your curse:</h3>
+    <input type="text" id="curseText" placeholder="Enter your curse">
+    <button id="submitCurseBtn">Submit Curse</button>
+    <p id="submissionStatus"></p>
+  </div>
+
+  <div id="votingDiv" style="display:none;">
+    <h3>Vote for the best curse:</h3>
+    <div id="cursesList"></div>
+  </div>
+
+  <div id="resultsDiv" style="display:none;">
+    <h3>Round Results</h3>
+    <p id="winnerText"></p>
+    <h4>Scores:</h4>
+    <div id="scoresList"></div>
+    <button id="nextRoundBtn">Next Round</button>
+  </div>
 </div>
 
 <script>
@@ -40,146 +69,139 @@ let ws;
 let username;
 let lobbyName;
 let isHost = false;
-let currentRound = 0;
+let wisher = '';
+let currentCurses = [];
 
-// Login
+document.getElementById('login').style.display = 'block';
+
 document.getElementById('loginBtn').onclick = () => {
-  username = document.getElementById('usernameInput').value.trim();
-  if (!username) {
-    alert('Please enter a username');
-    return;
-  }
-
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('lobbyScreen').style.display = 'block';
-
-  ws = new WebSocket('ws://' + location.hostname + ':3000');
-
-  ws.onopen = () => {
-    console.log('Connected to server');
-  };
-
-  ws.onmessage = (msg) => handleServer(JSON.parse(msg.data));
+  username = document.getElementById('username').value.trim();
+  if (!username) return alert('Enter a username');
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('lobby').style.display = 'block';
+  initWebSocket();
 };
 
-// Lobby actions
+function initWebSocket() {
+  ws = new WebSocket('ws://localhost:3000');
+
+  ws.onopen = () => console.log('Connected to server');
+
+  ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+
+    switch (data.type) {
+      case 'created':
+      case 'joined':
+        updatePlayersList(data.players);
+        if (data.type === 'created') isHost = true;
+        break;
+      case 'lobby_update':
+        updatePlayersList(data.players);
+        break;
+      case 'new_round':
+        document.getElementById('lobby').style.display = 'none';
+        document.getElementById('game').style.display = 'block';
+        document.getElementById('resultsDiv').style.display = 'none';
+        document.getElementById('roundNum').textContent = data.round + 1;
+        wisher = data.wisher;
+        document.getElementById('wisherName').textContent = wisher;
+        if (wisher === username) {
+          document.getElementById('wishInputDiv').style.display = 'block';
+          document.getElementById('wishDisplayDiv').style.display = 'none';
+          document.getElementById('cursesDiv').style.display = 'none';
+          document.getElementById('votingDiv').style.display = 'none';
+        } else {
+          document.getElementById('wishInputDiv').style.display = 'none';
+          document.getElementById('wishDisplayDiv').style.display = 'none';
+          document.getElementById('cursesDiv').style.display = 'block';
+          document.getElementById('submissionStatus').textContent = '0 submitted';
+        }
+        break;
+      case 'wish_drawn':
+        document.getElementById('wishInputDiv').style.display = 'none';
+        document.getElementById('wishDisplayDiv').style.display = 'block';
+        document.getElementById('currentWish').textContent = data.wish;
+        break;
+      case 'submission_update':
+        document.getElementById('submissionStatus').textContent = `${data.submitted} / ${data.total} submitted`;
+        break;
+      case 'reveal':
+        currentCurses = data.curses;
+        document.getElementById('cursesDiv').style.display = 'none';
+        displayVoting(currentCurses);
+        break;
+      case 'round_finished':
+        document.getElementById('votingDiv').style.display = 'none';
+        document.getElementById('resultsDiv').style.display = 'block';
+        const winnerCurse = currentCurses.find(c => c.username === data.winner);
+        document.getElementById('winnerText').textContent = `Winner: ${data.winner} – "${winnerCurse.text}"`;
+        updatePlayersList(data.players, 'scoresList');
+        break;
+      case 'error':
+        alert(data.message);
+        break;
+    }
+  };
+}
+
+function updatePlayersList(players, targetId = 'playersList') {
+  const div = document.getElementById(targetId);
+  div.innerHTML = '';
+  players.forEach(p => {
+    const pDiv = document.createElement('div');
+    pDiv.textContent = `${p.username} - Score: ${p.score}`;
+    div.appendChild(pDiv);
+  });
+}
+
 document.getElementById('createLobbyBtn').onclick = () => {
-  lobbyName = document.getElementById('lobbyNameInput').value.trim();
-  const password = document.getElementById('lobbyPasswordInput').value;
+  lobbyName = document.getElementById('lobbyName').value.trim();
+  const password = document.getElementById('lobbyPassword').value.trim();
   if (!lobbyName) return alert('Enter lobby name');
-  ws.send(JSON.stringify({ type: 'create_lobby', username, lobbyName, password }));
-  isHost = true;
+  ws.send(JSON.stringify({ type: 'create_lobby', lobbyName, password, username }));
 };
 
 document.getElementById('joinLobbyBtn').onclick = () => {
-  lobbyName = document.getElementById('lobbyNameInput').value.trim();
-  const password = document.getElementById('lobbyPasswordInput').value;
+  lobbyName = document.getElementById('lobbyName').value.trim();
+  const password = document.getElementById('lobbyPassword').value.trim();
   if (!lobbyName) return alert('Enter lobby name');
-  ws.send(JSON.stringify({ type: 'join_lobby', username, lobbyName, password }));
+  ws.send(JSON.stringify({ type: 'join_lobby', lobbyName, password, username }));
 };
 
-// Curse submission
+document.getElementById('startRoundBtn').onclick = () => {
+  if (!isHost) return alert('Only host can start the round');
+  ws.send(JSON.stringify({ type: 'start_round' }));
+};
+
+document.getElementById('submitWishBtn').onclick = () => {
+  const wish = document.getElementById('wishText').value.trim();
+  if (!wish) return alert('Enter your wish');
+  ws.send(JSON.stringify({ type: 'submit_wish', wish }));
+};
+
 document.getElementById('submitCurseBtn').onclick = () => {
-  const curse = document.getElementById('curseInput').value.trim();
-  if (!curse) return alert('Write a curse');
+  const curse = document.getElementById('curseText').value.trim();
+  if (!curse) return alert('Enter your curse');
   ws.send(JSON.stringify({ type: 'submit_curse', curse }));
-  document.getElementById('curseInput').value = '';
-  document.getElementById('curseSubmission').style.display = 'none';
+  document.getElementById('curseText').value = '';
 };
 
-// Handle server messages
-function handleServer(msg) {
-  switch(msg.type) {
-    case 'created':
-      document.getElementById('lobbyScreen').style.display = 'none';
-      document.getElementById('gameScreen').style.display = 'block';
-      document.getElementById('gameStatus').innerText = `Lobby created! You are the host.`;
-      updatePlayers(msg.players);
-      break;
-
-    case 'joined':
-      document.getElementById('lobbyScreen').style.display = 'none';
-      document.getElementById('gameScreen').style.display = 'block';
-      document.getElementById('gameStatus').innerText = `Joined lobby!`;
-      updatePlayers(msg.players);
-      break;
-
-    case 'lobby_update':
-      updatePlayers(msg.players);
-      break;
-
-    case 'game_started':
-      document.getElementById('gameStatus').innerText = `Game started!`;
-      break;
-
-    case 'new_round':
-      currentRound = msg.round;
-      document.getElementById('roundInfo').innerText = `Round ${currentRound}: ${msg.wisher} is making a wish`;
-      document.getElementById('wishDisplay').innerText = '';
-      document.getElementById('curseSubmission').style.display = 'none';
-      document.getElementById('cursesReveal').style.display = 'none';
-      break;
-
-    case 'wish_drawn':
-      document.getElementById('wishDisplay').innerText = `Wish: ${msg.wish}`;
-      if (msg.wisher !== username) {
-        document.getElementById('curseSubmission').style.display = 'block';
-      }
-      break;
-
-    case 'submission_update':
-      document.getElementById('gameStatus').innerText = `${msg.submitted}/${msg.total} curses submitted`;
-      break;
-
-    case 'reveal':
-      const cursesDiv = document.getElementById('cursesReveal');
-      cursesDiv.innerHTML = '<h3>Submitted Curses:</h3>';
-      msg.curses.forEach((c, i) => {
-        const btn = document.createElement('button');
-        btn.innerText = c.text;
-        if (msg.wisher === username) {
-          btn.onclick = () => ws.send(JSON.stringify({ type: 'vote', curseIndex: i }));
-        }
-        cursesDiv.appendChild(btn);
-        cursesDiv.appendChild(document.createElement('br'));
-      });
-      cursesDiv.style.display = 'block';
-      break;
-
-    case 'round_finished':
-      updateScores(msg.players);
-      document.getElementById('gameStatus').innerText = `Round over! Winner: ${msg.winner}`;
-      break;
-
-    case 'lobby_closed':
-      alert('Lobby closed by host');
-      location.reload();
-      break;
-
-    case 'error':
-      alert(msg.message);
-      break;
-
-    default:
-      console.log('Unknown message:', msg);
-  }
-}
-
-function updatePlayers(players) {
-  const list = document.getElementById('playersList');
-  list.innerHTML = '<h3>Players:</h3>';
-  players.forEach(p => {
-    list.innerHTML += `${p.username} - ${p.score || 0}<br>`;
+function displayVoting(curses) {
+  document.getElementById('votingDiv').style.display = 'block';
+  const list = document.getElementById('cursesList');
+  list.innerHTML = '';
+  curses.forEach((c, i) => {
+    const btn = document.createElement('button');
+    btn.textContent = c.text; // Anonymous voting
+    btn.onclick = () => ws.send(JSON.stringify({ type: 'vote', curseIndex: i }));
+    list.appendChild(btn);
   });
 }
 
-function updateScores(players) {
-  const scores = document.getElementById('scores');
-  scores.innerHTML = '<h3>Scores:</h3>';
-  players.forEach(p => {
-    scores.innerHTML += `${p.username}: ${p.score || 0}<br>`;
-  });
-}
+document.getElementById('nextRoundBtn').onclick = () => {
+  if (isHost) ws.send(JSON.stringify({ type: 'start_round' }));
+};
 </script>
 
 </body>
