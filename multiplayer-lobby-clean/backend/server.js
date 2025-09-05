@@ -1,93 +1,55 @@
-// server.js
-const WebSocket = require('ws');
-const http = require('http');
+let socket;
 
-const server = http.createServer();
-const wss = new WebSocket.Server({ server });
+// Initialize WebSocket
+function initWebSocket() {
+    socket = new WebSocket('wss://monkeypaw.onrender.com');
 
-const lobbies = {}; // { lobbyName: { password, players: {}, votes: {} } }
+    socket.onopen = () => console.log('Connected to server');
 
-wss.on('connection', (ws) => {
-    ws.on('message', (msg) => {
-        let data;
-        try {
-            data = JSON.parse(msg);
-        } catch (e) {
-            console.error('Invalid JSON:', msg);
-            return;
-        }
-
-        const { type, lobbyName, password, username, card } = data;
-
-        switch(type) {
-            case 'create_lobby':
-                if (lobbies[lobbyName]) {
-                    ws.send(JSON.stringify({ type: 'error', message: 'Lobby already exists' }));
-                    return;
-                }
-                lobbies[lobbyName] = { password, players: {}, votes: {} };
-                lobbies[lobbyName].players[username] = ws;
-                ws.lobbyName = lobbyName;
-                ws.username = username;
-
-                ws.send(JSON.stringify({ type: 'lobby_created', players: Object.keys(lobbies[lobbyName].players) }));
+    socket.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        switch(data.type) {
+            case 'lobby_created':
+                alert('Lobby created: ' + data.payload.lobbyId);
                 break;
-
-            case 'join_lobby':
-                if (!lobbies[lobbyName]) {
-                    ws.send(JSON.stringify({ type: 'error', message: 'Lobby does not exist' }));
-                    return;
-                }
-                if (lobbies[lobbyName].password !== password) {
-                    ws.send(JSON.stringify({ type: 'error', message: 'Incorrect password' }));
-                    return;
-                }
-
-                lobbies[lobbyName].players[username] = ws;
-                ws.lobbyName = lobbyName;
-                ws.username = username;
-
-                broadcastLobby(lobbyName, { type: 'joined_lobby', players: Object.keys(lobbies[lobbyName].players) });
+            case 'user_joined':
+                console.log(`${data.payload.username} joined the lobby`);
                 break;
-
-            case 'vote':
-                if (!ws.lobbyName) return;
-                lobbies[ws.lobbyName].votes[username] = card;
-
-                // Broadcast vote count only, no usernames
-                broadcastLobby(ws.lobbyName, { type: 'vote_update', votes: Object.values(lobbies[ws.lobbyName].votes).length });
+            case 'vote_cast':
+                console.log(`Total votes so far: ${data.payload.voteCount}`);
                 break;
-
-            case 'reveal_votes':
-                if (!ws.lobbyName) return;
-                const results = lobbies[ws.lobbyName].votes;
-                broadcastLobby(ws.lobbyName, { type: 'reveal_votes', results });
+            case 'votes_revealed':
+                console.log('Votes revealed:', data.payload);
+                alert(JSON.stringify(data.payload, null, 2));
                 break;
-
-            default:
-                ws.send(JSON.stringify({ type: 'error', message: 'Unknown type' }));
+            case 'error':
+                alert('Error: ' + data.payload);
+                break;
         }
-    });
+    };
 
-    ws.on('close', () => {
-        if (ws.lobbyName && lobbies[ws.lobbyName]) {
-            delete lobbies[ws.lobbyName].players[ws.username];
-            delete lobbies[ws.lobbyName].votes[ws.username];
-            broadcastLobby(ws.lobbyName, { type: 'new_player', players: Object.keys(lobbies[ws.lobbyName].players) });
-        }
-    });
-});
-
-function broadcastLobby(lobbyName, msg) {
-    const lobby = lobbies[lobbyName];
-    if (!lobby) return;
-    Object.values(lobby.players).forEach(playerWs => {
-        if (playerWs.readyState === WebSocket.OPEN) {
-            playerWs.send(JSON.stringify(msg));
-        }
-    });
+    socket.onclose = () => console.log('Disconnected from server');
 }
 
-server.listen(process.env.PORT || 3000, () => {
-    console.log('Server running on port', process.env.PORT || 3000);
-});
+// Call on page load
+initWebSocket();
+
+// Button handlers
+document.getElementById('createLobbyBtn').onclick = () => {
+    socket.send(JSON.stringify({ type: 'create_lobby' }));
+};
+
+document.getElementById('joinLobbyBtn').onclick = () => {
+    const username = prompt('Enter your username:');
+    const lobbyId = prompt('Enter lobby ID:').toUpperCase();
+    socket.send(JSON.stringify({ type: 'join_lobby', payload: { username, lobbyId } }));
+};
+
+document.getElementById('voteBtn').onclick = () => {
+    const vote = prompt('Enter your vote:');
+    socket.send(JSON.stringify({ type: 'vote', payload: { vote } }));
+};
+
+document.getElementById('revealVotesBtn').onclick = () => {
+    socket.send(JSON.stringify({ type: 'reveal_votes' }));
+};
