@@ -1,155 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Multiplayer Card Game</title>
-<style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    #login, #lobby, #game { margin-bottom: 20px; }
-    button { margin: 5px; }
-    #cards button { display: inline-block; margin: 5px; padding: 10px 20px; }
-    .winner { background-color: gold; font-weight: bold; }
-</style>
+    <meta charset="UTF-8">
+    <title>Multiplayer Voting Game</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+        #lobbySection, #voteSection { display: none; }
+    </style>
 </head>
 <body>
+    <h1>Multiplayer Voting Game</h1>
 
-<div id="login">
-    <h2>Login</h2>
-    Username: <input type="text" id="username" placeholder="Enter username"><br>
-    Lobby Name: <input type="text" id="lobbyName" placeholder="Lobby name"><br>
-    Password: <input type="text" id="password" placeholder="Password"><br>
-    <button id="createLobby">Create Lobby</button>
-    <button id="joinLobby">Join Lobby</button>
-</div>
-
-<div id="lobby" style="display:none;">
-    <h2>Lobby</h2>
-    <div id="players">Players:</div>
-    <button id="startGame">Start Game</button>
-</div>
-
-<div id="game" style="display:none;">
-    <h2>Game</h2>
-    <div id="cards">
-        <button data-card="Card 1">Card 1</button>
-        <button data-card="Card 2">Card 2</button>
-        <button data-card="Card 3">Card 3</button>
+    <!-- Login Screen -->
+    <div id="loginSection">
+        <label for="usernameInput">Enter your username:</label>
+        <input type="text" id="usernameInput" placeholder="Username">
+        <button id="loginBtn">Login</button>
     </div>
-    <button id="revealVotes">Reveal Votes</button>
-    <h3>Votes:</h3>
-    <div id="voteResults">Votes cast: 0</div>
-</div>
 
-<script>
-let socket;
-let votes = {}; // store votes for current round
+    <!-- Lobby Section -->
+    <div id="lobbySection">
+        <button id="createLobbyBtn">Create Lobby</button>
+        <button id="joinLobbyBtn">Join Lobby</button>
+        <div>
+            <label for="lobbyIdInput">Lobby ID:</label>
+            <input type="text" id="lobbyIdInput" placeholder="Lobby ID">
+        </div>
+    </div>
 
-function initWebSocket() {
-    socket = new WebSocket('wss://monkeypaw.onrender.com'); // your deployed server
+    <!-- Voting Section -->
+    <div id="voteSection">
+        <button id="voteBtn">Cast Vote</button>
+        <button id="revealVotesBtn">Reveal Votes</button>
+    </div>
 
-    socket.onopen = () => console.log('Connected to server');
-    socket.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        console.log('Received:', data);
+    <script src="client.js"></script>
+    <script>
+        let username = '';
 
-        switch(data.type) {
-            case 'lobby_created':
-            case 'joined_lobby':
-                document.getElementById('login').style.display = 'none';
-                document.getElementById('lobby').style.display = 'block';
-                updatePlayers(data.players);
-                break;
-            case 'new_player':
-                updatePlayers(data.players);
-                break;
-            case 'vote_update':
-                document.getElementById('voteResults').innerText = `Votes cast: ${data.votes}`;
-                break;
-            case 'reveal_votes':
-                showResults(data.results);
-                break;
-            case 'error':
-                alert(data.message);
-                break;
-        }
-    };
+        // Login
+        document.getElementById('loginBtn').onclick = () => {
+            const input = document.getElementById('usernameInput').value.trim();
+            if (!input) {
+                alert('Please enter a username!');
+                return;
+            }
+            username = input;
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('lobbySection').style.display = 'block';
+        };
 
-    socket.onclose = () => console.log('Disconnected from server');
-}
-
-function updatePlayers(players) {
-    document.getElementById('players').innerText = 'Players: ' + players.join(', ');
-}
-
-function showResults(results) {
-    const voteDiv = document.getElementById('voteResults');
-    voteDiv.innerHTML = '';
-    let maxVotes = 0;
-    let winners = [];
-
-    for (const card in results) {
-        const count = results[card].length;
-        if (count > maxVotes) {
-            maxVotes = count;
-            winners = [card];
-        } else if (count === maxVotes) {
-            winners.push(card);
-        }
-    }
-
-    for (const card in results) {
-        const div = document.createElement('div');
-        div.textContent = `${card} — ${results[card].length} votes`;
-        if (winners.includes(card)) div.classList.add('winner');
-        voteDiv.appendChild(div);
-    }
-
-    // reset votes for next round
-    votes = {};
-}
-
-document.getElementById('createLobby').onclick = () => {
-    const username = document.getElementById('username').value.trim();
-    const lobbyName = document.getElementById('lobbyName').value.trim();
-    const password = document.getElementById('password').value.trim();
-    if (!username || !lobbyName) return alert('Enter username and lobby name');
-
-    if (!socket) initWebSocket();
-
-    socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'create_lobby', username, lobbyName, password }));
-    };
-};
-
-document.getElementById('joinLobby').onclick = () => {
-    const username = document.getElementById('username').value.trim();
-    const lobbyName = document.getElementById('lobbyName').value.trim();
-    const password = document.getElementById('password').value.trim();
-    if (!username || !lobbyName) return alert('Enter username and lobby name');
-
-    if (!socket) initWebSocket();
-
-    socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'join_lobby', username, lobbyName, password }));
-    };
-};
-
-document.querySelectorAll('#cards button').forEach(btn => {
-    btn.onclick = () => {
-        const card = btn.dataset.card;
-        if (!socket) return alert('Not connected');
-        votes[card] = votes[card] || [];
-        votes[card].push('voted'); // anonymous
-        socket.send(JSON.stringify({ type: 'vote', card }));
-        document.getElementById('voteResults').innerText = `Votes cast: ${Object.values(votes).reduce((a,b)=>a+b.length,0)}`;
-    };
-});
-
-document.getElementById('revealVotes').onclick = () => {
-    if (!socket) return alert('Not connected');
-    socket.send(JSON.stringify({ type: 'reveal_votes' }));
-};
-</script>
-
+        // Store username in localStorage so client.js can access it
+        localStorage.setItem('username', username);
+    </script>
 </body>
 </html>
