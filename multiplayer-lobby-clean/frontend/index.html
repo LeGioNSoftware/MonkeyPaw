@@ -83,7 +83,7 @@ document.getElementById('loginBtn').onclick = () => {
 };
 
 function initWebSocket() {
-  ws = new WebSocket('wss://https://monkeypaw.onrender.com:3000');
+  const socket = new WebSocket('wss://monkeypaw.onrender.com'); 
 
   ws.onopen = () => console.log('Connected to server');
 
@@ -206,4 +206,5 @@ document.getElementById('nextRoundBtn').onclick = () => {
 
 </body>
 </html>
+
 
