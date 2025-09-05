@@ -1,193 +1,139 @@
-const express = require('express');
 const WebSocket = require('ws');
-const app = express();
-const wss = new WebSocket.Server({ noServer: true });
 
-const lobbies = {};
-const wishes = [
-  'I wish for infinite wealth',
-  'I wish for eternal life',
-  'I wish to be the smartest person alive',
-  'I wish for world peace',
-  'I wish to be famous'
-];
+const wss = new WebSocket.Server({ port: 3000 });
 
-app.use(express.static('frontend'));
+let lobbies = {}; // { lobbyName: { password, host, players: [{username, ws, score}], round: 0, wisherIndex: 0, wishes: [], curses: [] } }
 
-app.server = app.listen(3000, () => {
-  console.log('Server running on http://localhost:3000');
-});
+wss.on('connection', ws => {
+  ws.on('message', message => {
+    try {
+      const data = JSON.parse(message);
 
-app.server.on('upgrade', (request, socket, head) => {
-  const { pathname } = new URL(request.url, `http://${request.headers.host}`);
-  if (pathname === '/ws') {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
-    });
-  } else {
-    socket.destroy();
-  }
-});
+      switch (data.type) {
 
-wss.on('connection', (ws) => {
-  let currentLobby = null;
-  let playerName = `Player-${Math.floor(Math.random() * 1000)}`;
-  let isHost = false;
-  let isWisher = false;
-  let currentRound = 0;
-  let submissions = [];
-  let votes = [];
-
-  ws.on('message', (message) => {
-    const data = JSON.parse(message);
-
-    switch (data.type) {
-      case 'create_lobby':
-        if (lobbies[data.lobbyName]) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Lobby already exists' }));
-        } else {
+        case 'create_lobby':
+          if (lobbies[data.lobbyName]) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Lobby already exists' }));
+            return;
+          }
           lobbies[data.lobbyName] = {
-            name: data.lobbyName,
             password: data.password,
-            host: playerName,
-            players: [{ name: playerName, score: 0 }]
+            host: data.username,
+            players: [{ username: data.username, ws, score: 0 }],
+            round: 0,
+            wisherIndex: 0,
+            wishes: [],
+            curses: []
           };
-          currentLobby = data.lobbyName;
-          isHost = true;
-          ws.send(JSON.stringify({ type: 'created', lobbyName: data.lobbyName }));
-        }
-        break;
+          ws.lobby = data.lobbyName;
+          ws.send(JSON.stringify({ type: 'created', players: lobbies[data.lobbyName].players }));
+          break;
 
-      case 'join_lobby':
-        const lobby = lobbies[data.lobbyName];
-        if (!lobby) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Lobby not found' }));
-        } else if (lobby.password !== data.password) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Incorrect password' }));
-        } else {
-          lobby.players.push({ name: playerName, score: 0 });
-          currentLobby = data.lobbyName;
-          ws.send(JSON.stringify({ type: 'joined', playerName }));
-          broadcastLobbyUpdate(lobby);
-        }
-        break;
-
-      case 'leave_lobby':
-        if (currentLobby) {
-          const lobby = lobbies[currentLobby];
-          if (lobby) {
-            lobby.players = lobby.players.filter((p) => p.name !== playerName);
-            if (lobby.players.length === 0) {
-              delete lobbies[currentLobby];
-            } else if (isHost) {
-              lobby.host = lobby.players[0].name;
-            }
-            currentLobby = null;
-            isHost = false;
-            isWisher = false;
-            ws.send(JSON.stringify({ type: 'lobby_left' }));
-            broadcastLobbyUpdate(lobby);
+        case 'join_lobby':
+          const lobby = lobbies[data.lobbyName];
+          if (!lobby) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Lobby does not exist' }));
+            return;
           }
-        }
-        break;
-
-      case 'start_game':
-        if (isHost && currentLobby) {
-          const lobby = lobbies[currentLobby];
-          if (lobby) {
-            lobby.state = 'in_game';
-            currentRound = 1;
-            isWisher = true;
-            ws.send(JSON.stringify({ type: 'game_started', round: currentRound }));
-            broadcastLobbyUpdate(lobby);
-            drawWish();
+          if (lobby.password && lobby.password !== data.password) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Wrong password' }));
+            return;
           }
-        }
-        break;
+          lobby.players.push({ username: data.username, ws, score: 0 });
+          ws.lobby = data.lobbyName;
+          // Notify everyone in lobby
+          lobby.players.forEach(p => {
+            p.ws.send(JSON.stringify({ type: 'joined', players: lobby.players }));
+          });
+          break;
 
-      case 'submit_curse':
-        if (isWisher) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Wisher cannot submit curses' }));
-        } else {
-          submissions.push({ player: playerName, curse: data.curse });
-          ws.send(JSON.stringify({ type: 'submission_received' }));
-          if (submissions.length === lobbies[currentLobby].players.length - 1) {
-            broadcastCurses();
-          }
-        }
-        break;
-
-      case 'vote':
-        if (isWisher) {
-          votes.push({ player: playerName, curseIndex: data.curseIndex });
-          if (votes.length === submissions.length) {
-            const voteCounts = {};
-            votes.forEach((vote) => {
-              voteCounts[vote.curseIndex] = (voteCounts[vote.curseIndex] || 0) + 1;
+        case 'start_round':
+          {
+            const l = lobbies[ws.lobby];
+            if (!l) return;
+            l.round++;
+            // Rotate wisher
+            l.wisherIndex = (l.wisherIndex + 1) % l.players.length;
+            const wisher = l.players[l.wisherIndex].username;
+            l.wishes = [];
+            l.curses = [];
+            l.players.forEach(p => {
+              p.ws.send(JSON.stringify({ type: 'new_round', round: l.round, wisher }));
             });
-            const winningCurseIndex = Object.keys(voteCounts).reduce((a, b) =>
-              voteCounts[a] > voteCounts[b] ? a : b
-            );
-            const winningCurse = submissions[winningCurseIndex];
-            const player = lobbies[currentLobby].players.find(
-              (p) => p.name === winningCurse.player
-            );
-            player.score++;
-            ws.send(JSON.stringify({ type: 'round_finished', winner: winningCurse.player, score: player.score }));
-            resetRound();
           }
-        }
-        break;
+          break;
 
-      default:
-        ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
+        case 'submit_wish':
+          {
+            const l = lobbies[ws.lobby];
+            if (!l) return;
+            l.wishes.push({ username: ws.username, wish: data.wish });
+            l.players.forEach(p => {
+              p.ws.send(JSON.stringify({ type: 'wish_drawn', wish: data.wish }));
+            });
+          }
+          break;
+
+        case 'submit_curse':
+          {
+            const l = lobbies[ws.lobby];
+            if (!l) return;
+            const player = l.players.find(p => p.ws === ws);
+            l.curses.push({ username: player.username, text: data.curse, votes: 0 });
+            l.players.forEach(p => {
+              p.ws.send(JSON.stringify({ type: 'submission_update', submitted: l.curses.length, total: l.players.length - 1 }));
+            });
+            // When all curses are in, reveal them anonymously
+            if (l.curses.length === l.players.length - 1) {
+              const anonymousCurses = l.curses.map(c => ({ text: c.text }));
+              l.players.forEach(p => {
+                p.ws.send(JSON.stringify({ type: 'reveal', curses: l.curses }));
+              });
+            }
+          }
+          break;
+
+        case 'vote':
+          {
+            const l = lobbies[ws.lobby];
+            if (!l) return;
+            l.curses[data.curseIndex].votes++;
+            // For simplicity, we declare round finished after all votes = players-1
+            const totalVotes = l.curses.reduce((a, c) => a + c.votes, 0);
+            if (totalVotes === l.players.length - 1) {
+              // Find winner
+              const winnerCurse = l.curses.reduce((a, b) => (b.votes > a.votes ? b : a));
+              // Increment winner score
+              const winnerPlayer = l.players.find(p => p.username === winnerCurse.username);
+              if (winnerPlayer) winnerPlayer.score++;
+              // Send round results
+              l.players.forEach(p => {
+                p.ws.send(JSON.stringify({
+                  type: 'round_finished',
+                  winner: winnerCurse.username,
+                  players: l.players
+                }));
+              });
+            }
+          }
+          break;
+      }
+
+    } catch (err) {
+      console.error(err);
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message' }));
     }
   });
 
-  function broadcastLobbyUpdate(lobby) {
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'lobby_update', lobby }));
-      }
-    });
-  }
-
-  function drawWish() {
-    const wish = wishes[Math.floor(Math.random() * wishes.length)];
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'wish_drawn', wish }));
-      }
-    });
-  }
-
-  function broadcastCurses() {
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            type: 'reveal',
-            submissions: submissions.map((s) => s.curse)
-          })
-        );
-      }
-    });
-  }
-
-  function resetRound() {
-    submissions = [];
-    votes = [];
-    currentRound++;
-    isWisher = false;
-    const nextPlayer = lobbies[currentLobby].players[currentRound % lobbies[currentLobby].players.length];
-    isWisher = nextPlayer.name === playerName;
-    if (isWisher) {
-      drawWish();
+  ws.on('close', () => {
+    // Remove player from lobby if disconnected
+    if (ws.lobby && lobbies[ws.lobby]) {
+      const l = lobbies[ws.lobby];
+      l.players = l.players.filter(p => p.ws !== ws);
+      l.players.forEach(p => {
+        p.ws.send(JSON.stringify({ type: 'lobby_update', players: l.players }));
+      });
+      if (l.players.length === 0) delete lobbies[ws.lobby];
     }
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'new_round', round: currentRound, isWisher }));
-      }
-    });
-  }
+  });
 });
