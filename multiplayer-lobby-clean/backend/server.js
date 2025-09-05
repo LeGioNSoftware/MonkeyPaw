@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server({ port: 3000 });
+const PORT = process.env.PORT || 3000;
+const wss = new WebSocket.Server({ port: PORT });
 
 let lobbies = {}; // { lobbyName: { password, host, players: [{username, ws, score}], round: 0, wisherIndex: 0, wishes: [], curses: [] } }
 
@@ -137,3 +138,4 @@ wss.on('connection', ws => {
     }
   });
 });
+
