@@ -3,208 +3,127 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Monkey Paw Game</title>
+<title>Multiplayer Game</title>
 <style>
-  body { font-family: Arial, sans-serif; max-width: 800px; margin: auto; padding: 20px; }
-  #login, #lobby, #game { display: none; }
-  .player { margin-bottom: 5px; }
-  button { margin-top: 5px; }
+  body { font-family: sans-serif; padding: 20px; }
+  input, button { margin: 5px; }
+  #gameScreen { display: none; }
 </style>
 </head>
 <body>
 
-<div id="login">
-  <h2>Enter Username</h2>
-  <input type="text" id="username" placeholder="Your username">
-  <button id="loginBtn">Login</button>
-</div>
+<h2>Login / Create Lobby</h2>
+<label>Username: <input type="text" id="username"></label><br>
+<label>Lobby Name: <input type="text" id="lobbyName"></label><br>
+<label>Lobby Password: <input type="password" id="lobbyPassword"></label><br>
+<button id="createLobbyBtn" disabled>Create Lobby</button>
+<button id="joinLobbyBtn" disabled>Join Lobby</button>
 
-<div id="lobby">
-  <h2>Lobby</h2>
-  <input type="text" id="lobbyName" placeholder="Lobby name">
-  <input type="text" id="lobbyPassword" placeholder="Password">
-  <button id="createLobbyBtn">Create Lobby</button>
-  <button id="joinLobbyBtn">Join Lobby</button>
-  <h3>Players in Lobby:</h3>
-  <div id="playersList"></div>
-  <button id="startRoundBtn">Start Round (Host Only)</button>
-</div>
-
-<div id="game">
-  <h2>Round <span id="roundNum">0</span></h2>
-  <div id="wisherDiv">
-    <h3>Wisher: <span id="wisherName"></span></h3>
-    <div id="wishInputDiv">
-      <input type="text" id="wishText" placeholder="Enter your wish">
-      <button id="submitWishBtn">Submit Wish</button>
-    </div>
-    <div id="wishDisplayDiv" style="display:none;">
-      <strong>Wish:</strong> <span id="currentWish"></span>
-    </div>
-  </div>
-
-  <div id="cursesDiv" style="display:none;">
-    <h3>Submit your curse:</h3>
-    <input type="text" id="curseText" placeholder="Enter your curse">
-    <button id="submitCurseBtn">Submit Curse</button>
-    <p id="submissionStatus"></p>
-  </div>
-
-  <div id="votingDiv" style="display:none;">
-    <h3>Vote for the best curse:</h3>
-    <div id="cursesList"></div>
-  </div>
-
-  <div id="resultsDiv" style="display:none;">
-    <h3>Round Results</h3>
-    <p id="winnerText"></p>
-    <h4>Scores:</h4>
-    <div id="scoresList"></div>
-    <button id="nextRoundBtn">Next Round</button>
-  </div>
+<div id="gameScreen">
+  <h2>Game Lobby</h2>
+  <div id="players"></div>
+  <div id="cards"></div>
 </div>
 
 <script>
-let ws;
-let username;
-let lobbyName;
-let isHost = false;
-let wisher = '';
-let currentCurses = [];
-
-document.getElementById('login').style.display = 'block';
-
-document.getElementById('loginBtn').onclick = () => {
-  username = document.getElementById('username').value.trim();
-  if (!username) return alert('Enter a username');
-  document.getElementById('login').style.display = 'none';
-  document.getElementById('lobby').style.display = 'block';
-  initWebSocket();
-};
+let socket = null;
+let username = '';
+let lobbyName = '';
+let votes = {}; // to store votes anonymously
 
 function initWebSocket() {
-  const socket = new WebSocket('wss://monkeypaw.onrender.com'); 
+    const wsUrl = window.location.hostname === 'localhost'
+        ? 'ws://localhost:3000'
+        : 'wss://monkeypaw.onrender.com';
 
-  ws.onopen = () => console.log('Connected to server');
+    socket = new WebSocket(wsUrl);
 
-  ws.onmessage = (msg) => {
-    const data = JSON.parse(msg.data);
+    socket.onopen = () => {
+        console.log('WebSocket connected');
+        document.getElementById('createLobbyBtn').disabled = false;
+        document.getElementById('joinLobbyBtn').disabled = false;
+    };
 
-    switch (data.type) {
-      case 'created':
-      case 'joined':
-        updatePlayersList(data.players);
-        if (data.type === 'created') isHost = true;
-        break;
-      case 'lobby_update':
-        updatePlayersList(data.players);
-        break;
-      case 'new_round':
-        document.getElementById('lobby').style.display = 'none';
-        document.getElementById('game').style.display = 'block';
-        document.getElementById('resultsDiv').style.display = 'none';
-        document.getElementById('roundNum').textContent = data.round + 1;
-        wisher = data.wisher;
-        document.getElementById('wisherName').textContent = wisher;
-        if (wisher === username) {
-          document.getElementById('wishInputDiv').style.display = 'block';
-          document.getElementById('wishDisplayDiv').style.display = 'none';
-          document.getElementById('cursesDiv').style.display = 'none';
-          document.getElementById('votingDiv').style.display = 'none';
-        } else {
-          document.getElementById('wishInputDiv').style.display = 'none';
-          document.getElementById('wishDisplayDiv').style.display = 'none';
-          document.getElementById('cursesDiv').style.display = 'block';
-          document.getElementById('submissionStatus').textContent = '0 submitted';
-        }
-        break;
-      case 'wish_drawn':
-        document.getElementById('wishInputDiv').style.display = 'none';
-        document.getElementById('wishDisplayDiv').style.display = 'block';
-        document.getElementById('currentWish').textContent = data.wish;
-        break;
-      case 'submission_update':
-        document.getElementById('submissionStatus').textContent = `${data.submitted} / ${data.total} submitted`;
-        break;
-      case 'reveal':
-        currentCurses = data.curses;
-        document.getElementById('cursesDiv').style.display = 'none';
-        displayVoting(currentCurses);
-        break;
-      case 'round_finished':
-        document.getElementById('votingDiv').style.display = 'none';
-        document.getElementById('resultsDiv').style.display = 'block';
-        const winnerCurse = currentCurses.find(c => c.username === data.winner);
-        document.getElementById('winnerText').textContent = `Winner: ${data.winner} – "${winnerCurse.text}"`;
-        updatePlayersList(data.players, 'scoresList');
-        break;
-      case 'error':
-        alert(data.message);
-        break;
+    socket.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleServer(msg);
+    };
+
+    socket.onclose = () => {
+        console.log('WebSocket disconnected');
+        alert('Disconnected from server.');
+    };
+
+    socket.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        alert('WebSocket connection error.');
+    };
+}
+
+window.addEventListener('load', initWebSocket);
+
+document.getElementById('createLobbyBtn').addEventListener('click', () => {
+    username = document.getElementById('username').value.trim();
+    lobbyName = document.getElementById('lobbyName').value.trim();
+    const password = document.getElementById('lobbyPassword').value;
+
+    if (!username || !lobbyName) {
+        alert('Please enter a username and lobby name.');
+        return;
     }
-  };
+
+    socket.send(JSON.stringify({
+        type: 'create_lobby',
+        lobbyName,
+        password,
+        username
+    }));
+});
+
+document.getElementById('joinLobbyBtn').addEventListener('click', () => {
+    username = document.getElementById('username').value.trim();
+    lobbyName = document.getElementById('lobbyName').value.trim();
+    const password = document.getElementById('lobbyPassword').value;
+
+    if (!username || !lobbyName) {
+        alert('Please enter a username and lobby name.');
+        return;
+    }
+
+    socket.send(JSON.stringify({
+        type: 'join_lobby',
+        lobbyName,
+        password,
+        username
+    }));
+});
+
+function handleServer(msg) {
+    switch(msg.type) {
+        case 'lobby_created':
+        case 'joined_lobby':
+            document.getElementById('gameScreen').style.display = 'block';
+            updatePlayers(msg.players);
+            break;
+        case 'new_player':
+            updatePlayers(msg.players);
+            break;
+        case 'vote_update':
+            votes[msg.user] = msg.card; // store votes anonymously
+            break;
+        case 'reveal_votes':
+            alert('Voting results:\n' + JSON.stringify(msg.results, null, 2));
+            break;
+        default:
+            console.log('Unknown message', msg);
+    }
 }
 
-function updatePlayersList(players, targetId = 'playersList') {
-  const div = document.getElementById(targetId);
-  div.innerHTML = '';
-  players.forEach(p => {
-    const pDiv = document.createElement('div');
-    pDiv.textContent = `${p.username} - Score: ${p.score}`;
-    div.appendChild(pDiv);
-  });
+function updatePlayers(players) {
+    const div = document.getElementById('players');
+    div.innerHTML = '<strong>Players:</strong> ' + players.join(', ');
 }
-
-document.getElementById('createLobbyBtn').onclick = () => {
-  lobbyName = document.getElementById('lobbyName').value.trim();
-  const password = document.getElementById('lobbyPassword').value.trim();
-  if (!lobbyName) return alert('Enter lobby name');
-  ws.send(JSON.stringify({ type: 'create_lobby', lobbyName, password, username }));
-};
-
-document.getElementById('joinLobbyBtn').onclick = () => {
-  lobbyName = document.getElementById('lobbyName').value.trim();
-  const password = document.getElementById('lobbyPassword').value.trim();
-  if (!lobbyName) return alert('Enter lobby name');
-  ws.send(JSON.stringify({ type: 'join_lobby', lobbyName, password, username }));
-};
-
-document.getElementById('startRoundBtn').onclick = () => {
-  if (!isHost) return alert('Only host can start the round');
-  ws.send(JSON.stringify({ type: 'start_round' }));
-};
-
-document.getElementById('submitWishBtn').onclick = () => {
-  const wish = document.getElementById('wishText').value.trim();
-  if (!wish) return alert('Enter your wish');
-  ws.send(JSON.stringify({ type: 'submit_wish', wish }));
-};
-
-document.getElementById('submitCurseBtn').onclick = () => {
-  const curse = document.getElementById('curseText').value.trim();
-  if (!curse) return alert('Enter your curse');
-  ws.send(JSON.stringify({ type: 'submit_curse', curse }));
-  document.getElementById('curseText').value = '';
-};
-
-function displayVoting(curses) {
-  document.getElementById('votingDiv').style.display = 'block';
-  const list = document.getElementById('cursesList');
-  list.innerHTML = '';
-  curses.forEach((c, i) => {
-    const btn = document.createElement('button');
-    btn.textContent = c.text; // Anonymous voting
-    btn.onclick = () => ws.send(JSON.stringify({ type: 'vote', curseIndex: i }));
-    list.appendChild(btn);
-  });
-}
-
-document.getElementById('nextRoundBtn').onclick = () => {
-  if (isHost) ws.send(JSON.stringify({ type: 'start_round' }));
-};
 </script>
 
 </body>
 </html>
-
-
