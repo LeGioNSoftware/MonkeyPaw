@@ -2,57 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Multiplayer Voting Game</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        button { margin: 5px; padding: 10px 20px; font-size: 16px; }
-        #lobbySection, #voteSection { display: none; }
-    </style>
+    <title>Multiplayer Lobby</title>
 </head>
 <body>
-    <h1>Multiplayer Voting Game</h1>
+    <h1>Multiplayer Lobby</h1>
 
-    <!-- Login Screen -->
-    <div id="loginSection">
-        <label for="usernameInput">Enter your username:</label>
-        <input type="text" id="usernameInput" placeholder="Username">
-        <button id="loginBtn">Login</button>
+    <div id="loginDiv">
+        <input type="text" id="username" placeholder="Enter username" />
+        <button id="setUsernameBtn">Set Username</button>
     </div>
 
-    <!-- Lobby Section -->
-    <div id="lobbySection">
+    <div id="lobbyDiv" style="display:none;">
         <button id="createLobbyBtn">Create Lobby</button>
+        <input type="text" id="joinLobbyId" placeholder="Lobby ID" />
         <button id="joinLobbyBtn">Join Lobby</button>
-        <div>
-            <label for="lobbyIdInput">Lobby ID:</label>
-            <input type="text" id="lobbyIdInput" placeholder="Lobby ID">
-        </div>
     </div>
 
-    <!-- Voting Section -->
-    <div id="voteSection">
-        <button id="voteBtn">Cast Vote</button>
-        <button id="revealVotesBtn">Reveal Votes</button>
+    <div id="votingDiv" style="display:none;">
+        <h3>Vote for a card</h3>
+        <button class="cardBtn" data-card="A">Card A</button>
+        <button class="cardBtn" data-card="B">Card B</button>
+        <button class="cardBtn" data-card="C">Card C</button>
+    </div>
+
+    <div id="resultsDiv" style="display:none;">
+        <h3>Results</h3>
+        <pre id="results"></pre>
     </div>
 
     <script src="client.js"></script>
-    <script>
-        let username = '';
-
-        // Login
-        document.getElementById('loginBtn').onclick = () => {
-            const input = document.getElementById('usernameInput').value.trim();
-            if (!input) {
-                alert('Please enter a username!');
-                return;
-            }
-            username = input;
-            document.getElementById('loginSection').style.display = 'none';
-            document.getElementById('lobbySection').style.display = 'block';
-        };
-
-        // Store username in localStorage so client.js can access it
-        localStorage.setItem('username', username);
-    </script>
 </body>
 </html>
