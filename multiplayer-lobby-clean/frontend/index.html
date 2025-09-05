@@ -1,35 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Multiplayer Lobby</title>
+<meta charset="UTF-8">
+<title>Genie Consequences Game</title>
+<style>
+    body { font-family: 'Arial', sans-serif; background: #f0f8ff; text-align: center; }
+    #gameDiv, #resultsDiv, #votingDiv { margin-top: 20px; }
+    .cardBtn { margin: 5px; padding: 10px 20px; background: #ffcc00; border: none; cursor: pointer; border-radius: 8px; font-weight: bold; }
+    .cardBtn:hover { background: #ffaa00; }
+    input, textarea { padding: 8px; border-radius: 6px; border: 1px solid #ccc; width: 300px; }
+    button { padding: 8px 16px; border-radius: 6px; border: none; background: #007bff; color: white; cursor: pointer; margin-top: 5px; }
+    button:hover { background: #0056b3; }
+    #scoreboard { margin-top: 20px; }
+</style>
 </head>
 <body>
-    <h1>Multiplayer Lobby</h1>
 
-    <div id="loginDiv">
-        <input type="text" id="username" placeholder="Enter username" />
-        <button id="setUsernameBtn">Set Username</button>
-    </div>
+<h1>Genie Consequences</h1>
 
-    <div id="lobbyDiv" style="display:none;">
-        <button id="createLobbyBtn">Create Lobby</button>
-        <input type="text" id="joinLobbyId" placeholder="Lobby ID" />
-        <button id="joinLobbyBtn">Join Lobby</button>
+<div id="loginDiv">
+    <input type="text" id="username" placeholder="Enter username">
+    <input type="number" id="targetScore" placeholder="Target Score (default 10)">
+    <button id="setUsernameBtn">Set Username</button>
+</div>
+
+<div id="lobbyDiv" style="display:none;">
+    <button id="createLobbyBtn">Create Lobby</button>
+    <input type="text" id="joinLobbyId" placeholder="Lobby ID">
+    <button id="joinLobbyBtn">Join Lobby</button>
+</div>
+
+<div id="gameDiv" style="display:none;">
+    <h2 id="roundTitle">Round 1</h2>
+    <div id="gmDiv" style="display:none;">
+        <textarea id="wishInput" placeholder="Write your wish here..."></textarea><br>
+        <button id="submitWishBtn">Submit Wish</button>
     </div>
 
     <div id="votingDiv" style="display:none;">
-        <h3>Vote for a card</h3>
-        <button class="cardBtn" data-card="A">Card A</button>
-        <button class="cardBtn" data-card="B">Card B</button>
-        <button class="cardBtn" data-card="C">Card C</button>
+        <textarea id="consequenceInput" placeholder="Write your consequence here..."></textarea><br>
+        <button id="submitConsequenceBtn">Submit Consequence</button>
     </div>
+</div>
 
-    <div id="resultsDiv" style="display:none;">
-        <h3>Results</h3>
-        <pre id="results"></pre>
-    </div>
+<div id="resultsDiv" style="display:none;">
+    <h3>Round Results</h3>
+    <pre id="results"></pre>
+    <button id="nextRoundBtn" style="display:none;">Next Round</button>
+</div>
 
-    <script src="client.js"></script>
+<div id="scoreboard">
+    <h3>Scores</h3>
+    <pre id="scores"></pre>
+</div>
+
+<script src="client.js"></script>
 </body>
 </html>
