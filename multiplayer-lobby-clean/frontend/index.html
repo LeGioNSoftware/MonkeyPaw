@@ -2,127 +2,153 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Multiplayer Game</title>
+<title>Multiplayer Card Game</title>
 <style>
-  body { font-family: sans-serif; padding: 20px; }
-  input, button { margin: 5px; }
-  #gameScreen { display: none; }
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #login, #lobby, #game { margin-bottom: 20px; }
+    button { margin: 5px; }
+    #cards button { display: inline-block; margin: 5px; padding: 10px 20px; }
+    .winner { background-color: gold; font-weight: bold; }
 </style>
 </head>
 <body>
 
-<h2>Login / Create Lobby</h2>
-<label>Username: <input type="text" id="username"></label><br>
-<label>Lobby Name: <input type="text" id="lobbyName"></label><br>
-<label>Lobby Password: <input type="password" id="lobbyPassword"></label><br>
-<button id="createLobbyBtn" disabled>Create Lobby</button>
-<button id="joinLobbyBtn" disabled>Join Lobby</button>
+<div id="login">
+    <h2>Login</h2>
+    Username: <input type="text" id="username" placeholder="Enter username"><br>
+    Lobby Name: <input type="text" id="lobbyName" placeholder="Lobby name"><br>
+    Password: <input type="text" id="password" placeholder="Password"><br>
+    <button id="createLobby">Create Lobby</button>
+    <button id="joinLobby">Join Lobby</button>
+</div>
 
-<div id="gameScreen">
-  <h2>Game Lobby</h2>
-  <div id="players"></div>
-  <div id="cards"></div>
+<div id="lobby" style="display:none;">
+    <h2>Lobby</h2>
+    <div id="players">Players:</div>
+    <button id="startGame">Start Game</button>
+</div>
+
+<div id="game" style="display:none;">
+    <h2>Game</h2>
+    <div id="cards">
+        <button data-card="Card 1">Card 1</button>
+        <button data-card="Card 2">Card 2</button>
+        <button data-card="Card 3">Card 3</button>
+    </div>
+    <button id="revealVotes">Reveal Votes</button>
+    <h3>Votes:</h3>
+    <div id="voteResults">Votes cast: 0</div>
 </div>
 
 <script>
-let socket = null;
-let username = '';
-let lobbyName = '';
-let votes = {}; // to store votes anonymously
+let socket;
+let votes = {}; // store votes for current round
 
 function initWebSocket() {
-    const wsUrl = window.location.hostname === 'localhost'
-        ? 'ws://localhost:3000'
-        : 'wss://monkeypaw.onrender.com';
+    socket = new WebSocket('wss://monkeypaw.onrender.com'); // your deployed server
 
-    socket = new WebSocket(wsUrl);
+    socket.onopen = () => console.log('Connected to server');
+    socket.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        console.log('Received:', data);
 
-    socket.onopen = () => {
-        console.log('WebSocket connected');
-        document.getElementById('createLobbyBtn').disabled = false;
-        document.getElementById('joinLobbyBtn').disabled = false;
+        switch(data.type) {
+            case 'lobby_created':
+            case 'joined_lobby':
+                document.getElementById('login').style.display = 'none';
+                document.getElementById('lobby').style.display = 'block';
+                updatePlayers(data.players);
+                break;
+            case 'new_player':
+                updatePlayers(data.players);
+                break;
+            case 'vote_update':
+                document.getElementById('voteResults').innerText = `Votes cast: ${data.votes}`;
+                break;
+            case 'reveal_votes':
+                showResults(data.results);
+                break;
+            case 'error':
+                alert(data.message);
+                break;
+        }
     };
 
-    socket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleServer(msg);
-    };
-
-    socket.onclose = () => {
-        console.log('WebSocket disconnected');
-        alert('Disconnected from server.');
-    };
-
-    socket.onerror = (err) => {
-        console.error('WebSocket error:', err);
-        alert('WebSocket connection error.');
-    };
-}
-
-window.addEventListener('load', initWebSocket);
-
-document.getElementById('createLobbyBtn').addEventListener('click', () => {
-    username = document.getElementById('username').value.trim();
-    lobbyName = document.getElementById('lobbyName').value.trim();
-    const password = document.getElementById('lobbyPassword').value;
-
-    if (!username || !lobbyName) {
-        alert('Please enter a username and lobby name.');
-        return;
-    }
-
-    socket.send(JSON.stringify({
-        type: 'create_lobby',
-        lobbyName,
-        password,
-        username
-    }));
-});
-
-document.getElementById('joinLobbyBtn').addEventListener('click', () => {
-    username = document.getElementById('username').value.trim();
-    lobbyName = document.getElementById('lobbyName').value.trim();
-    const password = document.getElementById('lobbyPassword').value;
-
-    if (!username || !lobbyName) {
-        alert('Please enter a username and lobby name.');
-        return;
-    }
-
-    socket.send(JSON.stringify({
-        type: 'join_lobby',
-        lobbyName,
-        password,
-        username
-    }));
-});
-
-function handleServer(msg) {
-    switch(msg.type) {
-        case 'lobby_created':
-        case 'joined_lobby':
-            document.getElementById('gameScreen').style.display = 'block';
-            updatePlayers(msg.players);
-            break;
-        case 'new_player':
-            updatePlayers(msg.players);
-            break;
-        case 'vote_update':
-            votes[msg.user] = msg.card; // store votes anonymously
-            break;
-        case 'reveal_votes':
-            alert('Voting results:\n' + JSON.stringify(msg.results, null, 2));
-            break;
-        default:
-            console.log('Unknown message', msg);
-    }
+    socket.onclose = () => console.log('Disconnected from server');
 }
 
 function updatePlayers(players) {
-    const div = document.getElementById('players');
-    div.innerHTML = '<strong>Players:</strong> ' + players.join(', ');
+    document.getElementById('players').innerText = 'Players: ' + players.join(', ');
 }
+
+function showResults(results) {
+    const voteDiv = document.getElementById('voteResults');
+    voteDiv.innerHTML = '';
+    let maxVotes = 0;
+    let winners = [];
+
+    for (const card in results) {
+        const count = results[card].length;
+        if (count > maxVotes) {
+            maxVotes = count;
+            winners = [card];
+        } else if (count === maxVotes) {
+            winners.push(card);
+        }
+    }
+
+    for (const card in results) {
+        const div = document.createElement('div');
+        div.textContent = `${card} — ${results[card].length} votes`;
+        if (winners.includes(card)) div.classList.add('winner');
+        voteDiv.appendChild(div);
+    }
+
+    // reset votes for next round
+    votes = {};
+}
+
+document.getElementById('createLobby').onclick = () => {
+    const username = document.getElementById('username').value.trim();
+    const lobbyName = document.getElementById('lobbyName').value.trim();
+    const password = document.getElementById('password').value.trim();
+    if (!username || !lobbyName) return alert('Enter username and lobby name');
+
+    if (!socket) initWebSocket();
+
+    socket.onopen = () => {
+        socket.send(JSON.stringify({ type: 'create_lobby', username, lobbyName, password }));
+    };
+};
+
+document.getElementById('joinLobby').onclick = () => {
+    const username = document.getElementById('username').value.trim();
+    const lobbyName = document.getElementById('lobbyName').value.trim();
+    const password = document.getElementById('password').value.trim();
+    if (!username || !lobbyName) return alert('Enter username and lobby name');
+
+    if (!socket) initWebSocket();
+
+    socket.onopen = () => {
+        socket.send(JSON.stringify({ type: 'join_lobby', username, lobbyName, password }));
+    };
+};
+
+document.querySelectorAll('#cards button').forEach(btn => {
+    btn.onclick = () => {
+        const card = btn.dataset.card;
+        if (!socket) return alert('Not connected');
+        votes[card] = votes[card] || [];
+        votes[card].push('voted'); // anonymous
+        socket.send(JSON.stringify({ type: 'vote', card }));
+        document.getElementById('voteResults').innerText = `Votes cast: ${Object.values(votes).reduce((a,b)=>a+b.length,0)}`;
+    };
+});
+
+document.getElementById('revealVotes').onclick = () => {
+    if (!socket) return alert('Not connected');
+    socket.send(JSON.stringify({ type: 'reveal_votes' }));
+};
 </script>
 
 </body>
