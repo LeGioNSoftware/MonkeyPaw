@@ -1,102 +1,91 @@
-import { WebSocketServer } from 'ws';
+const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-const PORT = process.env.PORT || 10000;
-const wss = new WebSocketServer({ port: PORT });
+app.use(express.static('public')); // serve index.html and client.js from /public
 
-console.log(`Server running on port ${PORT}`);
+let lobbies = {}; // lobbyId -> { password, winningScore, players: [], gameMaster, roundData }
 
-let lobbies = {}; // lobbyId -> { users: [], scores: {}, gmIndex: 0, round: 1, wish: '', submissions: {} , targetScore: 10 }
+wss.on('connection', ws => {
+    ws.on('message', message => {
+        const msg = JSON.parse(message);
 
-wss.on('connection', (ws) => {
-    ws.on('message', (msg) => {
-        let data;
-        try { data = JSON.parse(msg); } catch { return; }
+        switch(msg.action) {
 
-        const lobby = lobbies[data.lobbyId];
-
-        switch(data.type) {
-            case 'createLobby': {
+            case 'createLobby':
                 const lobbyId = Math.random().toString(36).substring(2, 8);
-                lobbies[lobbyId] = { 
-                    users: [data.username], 
-                    scores: { [data.username]: 0 }, 
-                    gmIndex: 0, 
-                    round: 1, 
-                    wish: '', 
-                    submissions: {}, 
-                    targetScore: data.targetScore || 10
+                lobbies[lobbyId] = {
+                    password: msg.password,
+                    winningScore: msg.winningScore || 10,
+                    players: [{ username: msg.username, ws, score: 0 }],
+                    gameMaster: msg.username,
+                    roundData: []
                 };
-                ws.send(JSON.stringify({ type: 'lobbyCreated', lobbyId }));
+                ws.lobbyId = lobbyId;
+                ws.send(JSON.stringify({ action: 'lobbyCreated', lobbyId }));
                 break;
-            }
 
-            case 'joinLobby': {
-                if (!lobby) return ws.send(JSON.stringify({ type: 'error', message: 'Lobby not found' }));
-                if (!lobby.scores[data.username]) lobby.scores[data.username] = 0;
-                lobby.users.push(data.username);
-                ws.send(JSON.stringify({ type: 'lobbyJoined', lobbyId: data.lobbyId }));
-                broadcastLobby(lobbyId);
+            case 'joinLobby':
+                const lobby = lobbies[msg.lobbyId];
+                if (!lobby) {
+                    ws.send(JSON.stringify({ action: 'error', message: 'Lobby not found' }));
+                    return;
+                }
+                if (lobby.password !== msg.password) {
+                    ws.send(JSON.stringify({ action: 'error', message: 'Wrong password' }));
+                    return;
+                }
+                lobby.players.push({ username: msg.username, ws, score: 0 });
+                ws.lobbyId = msg.lobbyId;
+                ws.send(JSON.stringify({ action: 'joinedLobby', lobbyId: msg.lobbyId, players: lobby.players.map(p=>p.username), winningScore: lobby.winningScore }));
+                // Notify everyone
+                lobby.players.forEach(p => p.ws.send(JSON.stringify({ action: 'updatePlayers', players: lobby.players.map(p=>p.username) })));
                 break;
-            }
 
-            case 'setWish': {
-                if (!lobby) return;
-                const gmName = lobby.users[lobby.gmIndex];
-                if (data.username !== gmName) return;
-                lobby.wish = data.wish;
-                lobby.submissions = {};
-                broadcastToLobby(lobbyId, { type: 'newWish', wish: data.wish, gm: gmName });
-                break;
-            }
-
-            case 'submitConsequence': {
-                if (!lobby) return;
-                if (data.username === lobby.users[lobby.gmIndex]) return; // GM cannot submit
-                lobby.submissions[data.username] = data.consequence;
-
-                if (Object.keys(lobby.submissions).length === lobby.users.length - 1) {
-                    // All submissions received
-                    const gmName = lobby.users[lobby.gmIndex];
-                    broadcastToLobby(lobbyId, { type: 'submissionsReady', submissions: Object.values(lobby.submissions), gm: gmName });
+            case 'submitConsequence':
+                const currentLobby = lobbies[ws.lobbyId];
+                if (!currentLobby) return;
+                currentLobby.roundData.push({ username: msg.username, text: msg.text });
+                // Check if all players submitted
+                if (currentLobby.roundData.length === currentLobby.players.length - 1) {
+                    // Send all consequences to game master only
+                    const gmWs = currentLobby.players.find(p=>p.username===currentLobby.gameMaster).ws;
+                    gmWs.send(JSON.stringify({ action: 'showConsequences', roundData: currentLobby.roundData }));
                 }
                 break;
-            }
 
-            case 'pickWinner': {
-                if (!lobby) return;
-                const gmName = lobby.users[lobby.gmIndex];
-                if (data.username !== gmName) return;
-                const winner = data.winner;
+            case 'pickWinner':
+                const lobbyToUpdate = lobbies[ws.lobbyId];
+                if (!lobbyToUpdate) return;
+                const winner = lobbyToUpdate.players.find(p=>p.username===msg.username);
+                if (!winner) return;
+                winner.score += 1;
 
-                lobby.scores[winner] = (lobby.scores[winner] || 0) + 1;
+                // Notify everyone of round result
+                lobbyToUpdate.players.forEach(p => p.ws.send(JSON.stringify({ action: 'roundResult', winner: msg.username, score: winner.score })));
 
-                // Check for game end
-                let gameOver = false;
-                if (lobby.scores[winner] >= lobby.targetScore) gameOver = true;
-
-                broadcastToLobby(lobbyId, { type: 'roundResult', winner, scores: lobby.scores, wish: lobby.wish, submissions: lobby.submissions, gameOver });
-
-                if (!gameOver) {
-                    // Rotate GM
-                    lobby.gmIndex = (lobby.gmIndex + 1) % lobby.users.length;
-                    lobby.round += 1;
-                    lobby.wish = '';
-                    lobby.submissions = {};
-                    broadcastToLobby(lobbyId, { type: 'nextRound', gm: lobby.users[lobby.gmIndex], round: lobby.round });
+                // Check for game over
+                if (winner.score >= lobbyToUpdate.winningScore) {
+                    lobbyToUpdate.players.forEach(p => p.ws.send(JSON.stringify({ action: 'gameOver', winner: msg.username })));
+                    delete lobbies[ws.lobbyId];
+                } else {
+                    // Start new round: rotate game master
+                    const currentIndex = lobbyToUpdate.players.findIndex(p=>p.username===lobbyToUpdate.gameMaster);
+                    lobbyToUpdate.gameMaster = lobbyToUpdate.players[(currentIndex+1) % lobbyToUpdate.players.length].username;
+                    lobbyToUpdate.roundData = [];
+                    lobbyToUpdate.players.forEach(p => p.ws.send(JSON.stringify({ action: 'newRound', gameMaster: lobbyToUpdate.gameMaster })));
                 }
                 break;
-            }
+
+            default:
+                console.log('Unknown action', msg);
         }
     });
 });
 
-function broadcastToLobby(lobbyId, msg) {
-    wss.clients.forEach(client => {
-        if (client.readyState === 1) client.send(JSON.stringify({ ...msg, lobbyId }));
-    });
-}
-
-function broadcastLobby(lobbyId) {
-    const lobby = lobbies[lobbyId];
-    broadcastToLobby(lobbyId, { type: 'lobbyUpdate', users: lobby.users, scores: lobby.scores });
-}
+server.listen(process.env.PORT || 3000, () => {
+    console.log('Server running on port', process.env.PORT || 3000);
+});
