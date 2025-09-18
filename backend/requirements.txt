@@ -1,8 +1,0 @@
-fastapi
-uvicorn[standard]
-sqlmodel
-asyncpg
-psycopg2-binary
-python-jose
-passlib[bcrypt]
-pytest
