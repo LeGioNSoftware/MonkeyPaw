@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+asyncpg
+psycopg2-binary
+python-jose
+passlib[bcrypt]
+python-dotenv
+websockets
+pytest
