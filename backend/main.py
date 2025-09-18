@@ -12,7 +12,7 @@ from sqlmodel import SQLModel, Field, Session, create_engine, select, Column, JS
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://wisher_db_htxq_user:csuz2rEZ36h6B3th7FIKcWszZf2llLoe@dpg-d35qubffte5s7395t7v0-a/wisher_db_htxq")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://wisher_db_htxq_user:csuz2rEZ36h6B3th7FIKcWszZf2llLoe@dpg-d35qubffte5s7395t7v0-a/wisher_db_htxq")
 # For SQLModel async support we'll use create_engine sync for simplicity in the prototype (blocking DB ops are acceptable for demo)
 engine = create_engine(str(DATABASE_URL).replace('+asyncpg',''), echo=False)
 
