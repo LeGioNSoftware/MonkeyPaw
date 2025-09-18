@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next { height: 100%; }
+.card-back-1 { background-image: linear-gradient(135deg,#0f172a,#1e293b); }
+.card-back-2 { background-image: linear-gradient(135deg,#3b82f6,#ec4899); }
+.fancy-animate { transition: transform .25s ease, opacity .25s ease; }
